@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    {% block head %}
+
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>-</title>
+
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300&display=swap" rel="stylesheet">
+
+    <!-- Axios -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.27.2/axios.js"></script>
+
+    <!-- Bulma -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+
+    <!-- Open Layers -->
+    <link rel="stylesheet" href="https://cdn.rawgit.com/openlayers/openlayers.github.io/master/en/v5.3.0/css/ol.css"
+        type="text/css">
+    <script src="https://cdn.rawgit.com/openlayers/openlayers.github.io/master/en/v5.3.0/build/ol.js"></script>
+
+    <!-- Style.css -->
+    <link href="{{ url_for('static', path='/css/style.css') }}" rel="stylesheet">
+
+    <!-- Vue Js -->
+    <script src="https://unpkg.com/vue@3"></script>
+
+
+    {% endblock %}
+</head>
+
+<body>
+    {% block content %}{% endblock %}
+</body>
+
+<script>
+    get_data()
+
+    /* Elements that make up the popup. */
+    const key = 'JWsvgfxWKEvpddmACe7I';
+    const street_color = 'bright' // streets
+    const unclustered_ids = [];
+    const container = document.getElementById('popup');
+    const content = document.getElementById('popup-content');
+    const closer = document.getElementById('popup-closer');
+    var json_data;
+
+    /* Create an overlay to anchor the popup to the map.*/
+    const overlay = new ol.Overlay({
+        element: container,
+        autoPan: {
+            animation: {
+                duration: 250,
+            },
+        },
+        stopEvent: false,
+        positioning: "center-center",
+    });
+
+    /* Add a click handler to hide the popup. */
+    closer.onclick = function () {
+        overlay.setPosition(undefined);
+        closer.blur();
+        return false;
+    };
+
+    /* Create the map tiles (Background) */
+    const map_tiler = new ol.layer.Tile({
+        source: new ol.source.XYZ({
+            url: 'https://api.maptiler.com/maps/' + street_color + '/{z}/{x}/{y}.png?key=' + key,
+            tileSize: 512,
+        }),
+    })
+
+    /* Create the map.*/
+    const map = new ol.Map({
+        layers: [map_tiler],
+        overlays: [overlay],
+        target: 'map',
+        view: new ol.View({
+            center: ol.proj.fromLonLat([14.45, 50.05]),
+            zoom: 11,
+        }),
+    });
+
+    /* Change of Resolution = Scroll, this changes the cluster */
+    map.getView().on("change:resolution", function (event) {
+        unclustered_ids.length = 0;
+        var popup = overlay
+        overlay.id = undefined;
+        overlay.setPosition(undefined);
+    });
+
+    /* Pointer for cursor when over a feature */
+    map.on("pointermove", function (event) {
+
+        if (event.dragging) return;
+
+        map.getTargetElement().style.cursor = map.hasFeatureAtPixel(event.pixel)
+            ? "pointer"
+            : "";
+
+        /*
+        console.log(' map.hasFeatureAtPixel(event.pixel)', map.hasFeatureAtPixel(event.pixel))
+
+        var feature = map.forEachFeatureAtPixel(
+            event.pixel,
+            function (ft, l) { return ft; }
+        );
+
+        if (feature) {
+            console.log(feature.getId())
+            if (feature.getId()) {
+                //alert(feature.getId())
+                display_overay(feature)
+            }
+        }
+        */
+
+
+    });
+
+
+    /* function to get data */
+    async function get_data() {
+        const form = document.getElementById('form');
+        const formData = new FormData(form);
+
+        await axios.get("/get_data", formData).then(
+            (response) => {
+                json_data = response.data;
+                console.log('json_data: ', json_data);
+                setup_layers(response.data);
+            },
+        );
+    }
+
+    /* remove layers */
+    function remove_layers() {
+        console.log('remove_layers')
+        unclustered_ids.length = 0;
+
+        var layers = map.getLayers();
+        var layers_array = layers.array_
+
+        for (var i = 0; i < layers_array.length; i++) {
+            var layer = layers_array[i];
+            var layer_name = layer.get('name')
+            if (layer_name) {
+                console.log('layer_name: ', layer_name);
+                if (layer_name == 'clustered') {
+                    map.removeLayer(layer);
+                }
+            }
+        }
+
+
+        for (var i = 0; i < layers_array.length; i++) {
+            var layer = layers_array[i];
+            var layer_name = layer.get('name')
+            if (layer_name) {
+                console.log('layer_name: ', layer_name);
+                if (layer_name == 'unclustered') {
+                    map.removeLayer(layer);
+                }
+            }
+        }
+
+
+    };
+
+
+    /*
+    layers.forEach(layer => {
+
+        console.log('layer: ', layer)
+
+        if (layer && ['unclustered', 'clustered'].includes(layer.get('name'))) {
+            console.log('removing layer: ', layer.get('name'))
+            map.removeLayer(layer);
+        }
+    });
+
+        layers.array_.forEach(function (layer) {
+            var name = layer.get('name')
+            console.log('name: ', name);
+            if (name == 'clustered') {
+                map.removeLayer(layer);
+                console.log('removed clustered')
+            }
+            if (name == 'unclustered') {
+                map.removeLayer(layer);
+                console.log('removed unclustered')
+            }
+        });
+
+    */
+
+
+    /* setup layers */
+    function setup_layers(json_data) {
+        console.log('')
+        console.log('set_up_layer')
+        console.log('-------------------------------------------------------------------------')
+
+        // 1. Remove layers that are no longer needed
+        // ------------------------------------------------------------------------- 
+        remove_layers()
+
+        // 2. Create a list of features
+        // ------------------------------------------------------------------------- 
+
+        var feature_list = [];
+        for (var key in json_data) {
+            var json_item = json_data[key];
+
+            var f = new ol.Feature({
+                id: key,
+                geometry: new ol.geom.Point(ol.proj.fromLonLat([json_item.lon, json_item.lat])),
+                style: new ol.style.Style({
+                    image: new ol.style.Circle({
+                        radius: 7,
+                        stroke: new ol.style.Stroke({
+                            color: "#5151F0",
+                            width: 2,
+                        }),
+                        fill: new ol.style.Fill({
+                            color: "#fff",
+                        }),
+                    }),
+
+                    text: new ol.style.Text({
+                        text: '',
+                        fill: new ol.style.Fill({
+                            color: "#5151F0",
+                        }),
+                    }),
+
+
+                }),
+            });
+            f.setId(key)
+            feature_list.push(f);
+        }
+
+        // 3. Create clustured layer
+        // ------------------------------------------------------------------------- 
+
+
+        var clustered = new ol.layer.Vector({
+            name: "clustered",
+            source: new ol.source.Cluster({
+                distance: 50,
+                source: new ol.source.Vector({ features: feature_list }),
+            }),
+            style: function (feature) {
+                var size = feature.get("features").length;
+                var zoom = map.getView().getZoom();
+                console.log('zoom: ', zoom)
+                var style;
+                if (size == 1) {
+                    var feature_id = feature.values_.features[0].values_.id
+                    if (!unclustered_ids.includes(feature_id)) {
+                        unclustered_ids.push(feature_id);
+                    }
+                } else {
+
+                    if (size > 18) {
+                        radius_size = 18;
+                    } else if (size < 10) {
+                        radius_size = 10;
+                    } else {
+                        radius_size = size;
+                    }
+
+                    var text_of_cluster = size.toString();
+
+                    if (!style) {
+                        style = new ol.style.Style({
+                            image: new ol.style.Circle({
+                                radius: radius_size,
+                                stroke: new ol.style.Stroke({
+                                    color: "#5151F0",
+                                }),
+                                fill: new ol.style.Fill({
+                                    color: "#5151F0",
+                                }),
+                            }),
+                            text: new ol.style.Text({
+                                text: text_of_cluster,
+                                fill: new ol.style.Fill({
+                                    color: "#fff",
+                                }),
+                            }),
+                        });
+                    }
+                    return style;
+                }
+            },
+        });
+
+
+        // 4. Create unclustured layer
+        // ------------------------------------------------------------------------- 
+        var unclustered = new ol.layer.Vector({
+            name: "unclustered",
+            source: new ol.source.Vector({ features: feature_list }),
+            style: function (feature) {
+                var feature_id = feature.values_.id
+                if (unclustered_ids.includes(feature_id)) {
+                    return feature.get("style");
+                }
+            },
+        });
+
+        // 5. Add Cluster to Layer
+        // ------------------------------------------------------------------------- 
+
+        unclustered.set('name', 'unclustered')
+        clustered.set('name', 'clustered')
+        map.addLayer(clustered);
+        map.addLayer(unclustered);
+    }
+
+
+    /* on map click 
+        - if cluster feature zoom in. 
+        - if feature show overlay and info
+        - if no feature, close overlay if any exists 
+    */
+    map.on("click", function (event) {
+
+        console.log('clicked on : ', event.coordinate);
+
+        var lonlat = ol.proj.transform(event.coordinate, 'EPSG:3857', 'EPSG:4326');
+        var lon = lonlat[0];
+        var lat = lonlat[1];
+
+        document.getElementById('lat').value = lat;
+        document.getElementById('lon').value = lon;
+
+        console.log(lon, lat)
+
+        var list = map.forEachFeatureAtPixel(
+            event.pixel,
+            function (feature, layer) {
+                return { feature: feature, layer: layer };
+            }
+        );
+        if (list) {
+            console.log('list.feature: ', list.feature)
+            console.log('id_: ', list.feature.id_)
+            if (list.feature.id_) {
+                console.log('id_: ', list.feature.id_)
+                display_overay(list.feature)
+            } else {
+                console.log('increase zoom')
+                var zoom = map.getView().getZoom();
+                map.getView().setZoom(zoom + 2)
+                map.getView().setCenter(event.coordinate);
+
+            }
+
+        } else {
+            console.log("no feature");
+            overlay.id = undefined;
+            overlay.setPosition(undefined);
+        }
+    });
+
+    /* Overlay (Pop up) */
+    function display_overay(feature) {
+
+        var overlay_position = overlay.getPosition()
+        console.log('overlay_position: ', overlay_position)
+
+        console.log('display_overay')
+        if (feature) {
+            var id = feature.getId();
+            console.log('id: ', id);
+            if (id) {
+                var json_item = json_data[id];
+                console.log('json_item: ', json_item)
+                content.innerHTML =
+                    `
+                    <div>
+                        <a href="` + json_item.url + `">` + json_item.title + ` </a><br>
+                        <span>price: ` + json_item.price + `</span><br>
+                        <img style="width: 100%" src="` + json_item.img_src + `" />
+                    </div>
+                    `;
+
+                content.innerHTML =
+                    `
+                    <div class="">
+                        <div class="card-image">
+                            <figure class="image is-4by3">
+                                <img style="width: 100%" src="` + json_item.img_src + `" />
+                            </figure>
+                        </div>
+                        <div class="card-content">
+                                    <p class="title is-6">
+                                        <a href="` + json_item.url + `">` + json_item.title + ` </a><br>
+                                    </p>
+                                    
+                                    <p class="subtitle is-6">price: ` + json_item.price + ` <br> area: ` + json_item.area + `</p>
+                        </div>
+                    </div>
+                  `;
+                overlay.id = id;
+                overlay.setPosition(ol.proj.fromLonLat([json_item.lon, json_item.lat]));
+                console.log('Overlay! y/n')
+
+            }
+        }
+    }
+
+
+
+
+</script>
+
+</html>
